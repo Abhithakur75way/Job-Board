@@ -1,10 +1,9 @@
 import { Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
-import Job from "../employer/job.schema";
 import { IUser } from "../user/user.schema";
 import { sendEmail } from "../common/services/email.service";
 import { uploadResume } from "../common/middleware/upload.middleware";
-import { JobService } from "../employer/job.service";
+import { JobService } from "./job.service";
 
 // POST: Create a new job posting (Employer must be authenticated)
 export const postJob = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -105,3 +104,57 @@ export const applyForJob = async (req: Request, res: Response, next: NextFunctio
 
 // POST: Apply for a job with resume upload (Candidate must be authenticated)
 export const applyForJobWithResume = uploadResume.single("resume");
+
+
+/**
+ * Fetches all job applications for the authenticated candidate.
+ * 
+ * @param {Request} req - Express request object, with user information attached by the auth middleware.
+ * @param {Response} res - Express response object, used to send back the list of applications or error messages.
+ * @param {NextFunction} next - Express next function, used to pass control to the error handler in case of an error.
+ * 
+ * @returns {Promise<void>} - Sends a JSON response with the list of candidate's applications if found, 
+ *                            or a 404 status with a message if no applications are found.
+ * 
+ * @throws - Passes any errors encountered to the next error handling middleware.
+ */
+
+export const trackApplications = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const candidateId = (req.user as IUser)._id;
+
+  try {
+    const applications = await JobService.getCandidateApplications(candidateId);
+
+    if (!applications.length) {
+      return void res.status(404).json({ message: "No applications found" });
+    }
+
+    res.status(200).json(applications);
+  } catch (err) {
+    next(err); // Pass error to error handler
+  }
+};
+
+/**
+
+ * Updates the status of a job application.
+ * 
+ * @param {Request} req - Express request object containing `jobId`, `candidateId`, and `status` in the body.
+ * @param {Response} res - Express response object used to send back a success message and the updated application details.
+ * @param {NextFunction} next - Express next function to pass control to the error handler in case of an error.
+ * 
+ * @returns {Promise<void>} - Sends a JSON response with a message and updated application details upon success.
+ * 
+ * @throws - Passes any errors encountered to the next error handling middleware.
+ */
+
+export const updateApplicationStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const { jobId, candidateId, status } = req.body;
+
+  try {
+    const updatedApplication = await JobService.updateApplicationStatus(jobId, candidateId, status);
+    res.status(200).json({ message: "Application status updated", application: updatedApplication });
+  } catch (err) {
+    next(err); // Pass error to error handler
+  }
+};

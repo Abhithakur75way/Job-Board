@@ -21,7 +21,10 @@ const options = {
       },
     },
   },
-  apis: ["./routes/**/*.ts", "./controllers/**/*.ts"], // Paths to all routes and controller files
+  apis: [
+    "./app/employer/job.routes.ts", // Employer routes
+    "./app/user/user.routes.ts", // User routes
+  ],
 };
 
 // Initialize Swagger documentation
@@ -30,4 +33,10 @@ const swaggerSpec = swaggerJsdoc(options);
 export const swaggerDocs = (router: Router) => {
   // Serve Swagger UI documentation at /docs
   router.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+  // Optional: Serve raw JSON spec at /docs.json
+  router.get("/docs.json", (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    res.send(swaggerSpec);
+  });
 };

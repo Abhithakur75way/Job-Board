@@ -3,6 +3,13 @@ import { UserRegisterDto, UserLoginDto } from '../common/dto/base.dto';
 import { UserService } from '../user/user.service'; // Import the UserService
 
 // Register User
+/**
+ * Registers a new user
+ * @param {Request} req - Express request object
+ * @param {Response} res - Express response object
+ * @param {UserRegisterDto} req.body - Body of the request containing the user's details
+ * @returns {Promise<void>} - Promise that resolves with no value
+ */
 export const registerUser = async (req: Request<{}, {}, UserRegisterDto>, res: Response): Promise<void> => {
   const { name, email, password, role } = req.body;
 
@@ -55,5 +62,32 @@ export const refreshAccessToken = async (req: Request, res: Response): Promise<v
     console.error(err);
     // Return error response if refresh token is invalid or other error occurs
     res.status(401).json({ message: err.message || 'Invalid refresh token' });
+  }
+};
+
+
+// Send Password Reset Token
+export const sendPasswordResetToken = async (req: Request, res: Response): Promise<void> => {
+  const { email } = req.body;
+
+  try {
+    const response = await UserService.sendPasswordResetToken(email);
+    res.status(200).json(response);
+  } catch (err: any) {
+    console.error(err);
+    res.status(400).json({ message: err.message || 'Error sending password reset token' });
+  }
+};
+
+// Reset Password
+export const resetPassword = async (req: Request, res: Response): Promise<void> => {
+  const { token, newPassword } = req.body;
+
+  try {
+    const response = await UserService.resetPassword(token, newPassword);
+    res.status(200).json(response);
+  } catch (err: any) {
+    console.error(err);
+    res.status(400).json({ message: err.message || 'Error resetting password' });
   }
 };

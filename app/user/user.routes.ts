@@ -1,5 +1,11 @@
 import { Router } from "express";
-import { registerUser, loginUser, refreshAccessToken } from "../controllers/auth.controller";
+import {
+  registerUser,
+  loginUser,
+  refreshAccessToken,
+  sendPasswordResetToken,
+  resetPassword,
+} from "../controllers/auth.controller";
 import { check } from "express-validator";
 import { validate } from "../common/middleware/validate.middleware";
 
@@ -7,8 +13,16 @@ const router = Router();
 
 /**
  * @swagger
+ * tags:
+ *   name: Authentication
+ *   description: Endpoints for user authentication and password management
+ */
+
+/**
+ * @swagger
  * /api/auth/register:
  *   post:
+ *     tags: [Authentication]
  *     summary: Register a new user
  *     description: Allows a new user to register (either employer or candidate)
  *     requestBody:
@@ -17,6 +31,11 @@ const router = Router();
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - name
+ *               - email
+ *               - password
+ *               - role
  *             properties:
  *               name:
  *                 type: string
@@ -55,6 +74,7 @@ router.post(
  * @swagger
  * /api/auth/login:
  *   post:
+ *     tags: [Authentication]
  *     summary: Login an existing user
  *     description: Allows a registered user to login with their email and password
  *     requestBody:
@@ -63,6 +83,9 @@ router.post(
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - email
+ *               - password
  *             properties:
  *               email:
  *                 type: string
@@ -73,6 +96,15 @@ router.post(
  *     responses:
  *       200:
  *         description: Login successful, returns access token and refresh token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
  *       400:
  *         description: Invalid email or password
  *       500:
@@ -92,6 +124,7 @@ router.post(
  * @swagger
  * /api/auth/refresh:
  *   post:
+ *     tags: [Authentication]
  *     summary: Refresh access token
  *     description: Allows a user to refresh their access token using a refresh token
  *     requestBody:
@@ -100,6 +133,8 @@ router.post(
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - refreshToken
  *             properties:
  *               refreshToken:
  *                 type: string
@@ -107,11 +142,93 @@ router.post(
  *     responses:
  *       200:
  *         description: Returns a new access token
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 accessToken:
+ *                   type: string
  *       400:
  *         description: Missing or invalid refresh token
  *       500:
  *         description: Server error
  */
 router.post("/refresh", refreshAccessToken);
+
+/**
+ * @swagger
+ * /api/auth/forgot-password:
+ *   post:
+ *     tags: [Authentication]
+ *     summary: Request a password reset token
+ *     description: Sends a password reset token to the user's email address
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *             properties:
+ *               email:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Password reset token sent successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Password reset token sent to email
+ *       400:
+ *         description: User not found or invalid request
+ *       500:
+ *         description: Server error
+ */
+router.post("/forgot-password", sendPasswordResetToken);
+
+/**
+ * @swagger
+ * /api/auth/reset-password:
+ *   post:
+ *     tags: [Authentication]
+ *     summary: Reset password using token
+ *     description: Resets the user's password using a valid reset token
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - resetToken
+ *               - newPassword
+ *             properties:
+ *               resetToken:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Password reset successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Password has been reset successfully
+ *       400:
+ *         description: Invalid or expired reset token
+ *       500:
+ *         description: Server error
+ */
+router.post("/reset-password", resetPassword);
 
 export default router;

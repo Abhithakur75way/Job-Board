@@ -7,7 +7,12 @@ export interface IJob extends Document {
   type: "full-time" | "part-time" | "contract";
   skills: string[];
   employer: mongoose.Types.ObjectId;
-  applications: Array<{ candidateId: string; resumeUrl: string }>;
+  applications: Array<{
+    candidateId: mongoose.Types.ObjectId;
+    resumeUrl: string;
+    status: string;
+    createdAt?: Date;
+  }>;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -27,7 +32,19 @@ const JobSchema = new Schema<IJob>(
     applications: [
       {
         candidateId: { type: Schema.Types.ObjectId, ref: "User" },
-        resumeUrl: { type: String },
+        resumeUrl: { type: String, required: true },
+        status: {
+          type: String,
+          enum: [
+            "applied",
+            "under review",
+            "interview scheduled",
+            "rejected",
+            "hired",
+          ],
+          default: "applied",
+        },
+        createdAt: { type: Date, default: Date.now },
       },
     ],
   },
@@ -35,8 +52,6 @@ const JobSchema = new Schema<IJob>(
     timestamps: true,
   }
 );
-
-
 
 const Job = mongoose.model<IJob>("Job", JobSchema);
 

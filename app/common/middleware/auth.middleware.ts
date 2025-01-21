@@ -3,6 +3,19 @@ import { User } from "../../user/user.schema";
 import { AuthService } from "../services/auth.service"; // Import the AuthService
 import { CustomError } from "../../utils/custom.error"; // A custom error handler class
 
+/**
+ * Authentication middleware to verify the access token in the Authorization header
+ * and attach the corresponding user to the request object.
+ *
+ * @throws {CustomError} 401 - Authorization token is missing
+ * @throws {CustomError} 500 - JWT_ACCESS_SECRET is not defined in .env
+ * @throws {CustomError} 401 - Invalid or expired token
+ * @throws {CustomError} 404 - User not found
+ *
+ * @param {Request} req - Express request object
+ * @param {Response} res - Express response object
+ * @param {NextFunction} next - Express next function
+ */
 export const authMiddleware = async (
   req: Request,
   res: Response,
