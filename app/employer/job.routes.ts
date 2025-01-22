@@ -235,6 +235,5 @@ router.get("/applications", authMiddleware, trackApplications);
  *       500:
  *         description: Server error
  */
-router.put("/applications/status", authMiddleware, updateApplicationStatus);
-
+router.put("/applications/:applicationId/status", authMiddleware, updateApplicationStatus);
 export default router;

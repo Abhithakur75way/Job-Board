@@ -1,17 +1,22 @@
 import { Request, Response, NextFunction } from "express";
-import mongoose from "mongoose";
-import { IUser } from "../user/user.schema";
+import { IUser } from "../user/user.entity";
 import { sendEmail } from "../common/services/email.service";
 import { uploadResume } from "../common/middleware/upload.middleware";
 import { JobService } from "./job.service";
 
 // POST: Create a new job posting (Employer must be authenticated)
-export const postJob = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  const { title, description, location, type, skills } = req.body;
-  
+export const postJob = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const { title, description, location, type, skills, } = req.body;
+
   try {
-    if ((req.user as IUser)?.role !== 'employer') {
-      return void res.status(403).json({ message: "Only employers can post jobs." });
+    if ((req.user as IUser)?.role !== "employer") {
+      return void res
+        .status(403)
+        .json({ message: "Only employers can post jobs." });
     }
 
     const job = await JobService.createJob({
@@ -20,7 +25,7 @@ export const postJob = async (req: Request, res: Response, next: NextFunction): 
       location,
       type,
       skills,
-      employerId: (req.user as IUser)._id,
+      employerId: (req.user as IUser).id, // Use number here
     });
 
     res.status(201).json(job); // Return job object
@@ -30,27 +35,30 @@ export const postJob = async (req: Request, res: Response, next: NextFunction): 
 };
 
 // GET: Fetch all jobs or filter by location, type, and skills
-export const getJobs = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const getJobs = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   const { location, type, skills, search } = req.query;
 
   try {
     const filter: any = {};
 
-    // Location filter
+    // Location filter (PostgreSQL: exact match)
     if (location) filter.location = location;
 
-    // Job type filter
+    // Job type filter (PostgreSQL: exact match)
     if (type) filter.type = type;
 
-    // Skills filter
-    if (skills) filter.skills = { $in: (skills as string).split(",") };
+    // Skills filter (PostgreSQL: use array contains for skills)
+    if (skills && typeof skills === 'string') {
+      filter.skills = skills.split(","); // assuming skills is an array
+    }
 
-    // Search functionality
+    // Search functionality (PostgreSQL: case-insensitive search with ILIKE)
     if (search) {
-      filter.$or = [
-        { title: { $regex: search, $options: "i" } },
-        { description: { $regex: search, $options: "i" } },
-      ];
+      filter.search = `%${search}%`;
     }
 
     const jobs = await JobService.getJobs(filter);
@@ -61,11 +69,15 @@ export const getJobs = async (req: Request, res: Response, next: NextFunction): 
 };
 
 // GET: Get job details by ID (For candidates to apply, or employers to view applications)
-export const getJobById = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  const jobId = req.params.id;
+export const getJobById = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const jobId = parseInt(req.params.id); // Convert jobId to number
 
   try {
-    const job = await JobService.getJobById(jobId, req.user as IUser) ;
+    const job = await JobService.getJobById(jobId, (req.user as IUser).id);
 
     if (!job) return void res.status(404).json({ message: "Job not found" });
 
@@ -76,11 +88,15 @@ export const getJobById = async (req: Request, res: Response, next: NextFunction
 };
 
 // POST: Apply for a job (Candidate must be authenticated, and resume must be uploaded)
-export const applyForJob = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  const jobId = req.params.id;
-  const candidateId = (req.user as IUser)._id;
+export const applyForJob = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const jobId = parseInt(req.params.id); // Convert jobId to number
+  const candidateId = (req.user as IUser).id; // Get candidateId as number
 
-  if (!mongoose.Types.ObjectId.isValid(jobId)) {
+  if (isNaN(jobId)) {
     return void res.status(400).json({ message: "Invalid job ID format" });
   }
 
@@ -91,10 +107,23 @@ export const applyForJob = async (req: Request, res: Response, next: NextFunctio
       return void res.status(400).json({ message: "Resume is required" });
     }
 
-    const job = await JobService.applyForJob(jobId, candidateId, resume);
+    const { job, employerEmail } = await JobService.applyForJob(
+      jobId,
+      candidateId,
+      resume
+    );
 
-    await sendEmail(job.employerEmail, "New Job Application Received", `New application received for the job: ${job.job.title}`);
-    await sendEmail((req.user as IUser)?.email!, "Application Submitted", `Your application for the job: ${job.job.title} has been submitted successfully.`);
+    // Send email notifications
+    await sendEmail(
+      employerEmail,
+      "New Job Application Received",
+      `New application received for the job: ${job.title}`
+    );
+    await sendEmail(
+      (req.user as IUser)?.email!,
+      "Application Submitted",
+      `Your application for the job: ${job.title} has been submitted successfully.`
+    );
 
     res.status(200).json({ message: "Application submitted successfully" });
   } catch (err) {
@@ -105,22 +134,13 @@ export const applyForJob = async (req: Request, res: Response, next: NextFunctio
 // POST: Apply for a job with resume upload (Candidate must be authenticated)
 export const applyForJobWithResume = uploadResume.single("resume");
 
-
-/**
- * Fetches all job applications for the authenticated candidate.
- * 
- * @param {Request} req - Express request object, with user information attached by the auth middleware.
- * @param {Response} res - Express response object, used to send back the list of applications or error messages.
- * @param {NextFunction} next - Express next function, used to pass control to the error handler in case of an error.
- * 
- * @returns {Promise<void>} - Sends a JSON response with the list of candidate's applications if found, 
- *                            or a 404 status with a message if no applications are found.
- * 
- * @throws - Passes any errors encountered to the next error handling middleware.
- */
-
-export const trackApplications = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-  const candidateId = (req.user as IUser)._id;
+// Fetches all job applications for the authenticated candidate.
+export const trackApplications = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  const candidateId = (req.user as IUser).id; // Get candidateId as number
 
   try {
     const applications = await JobService.getCandidateApplications(candidateId);
@@ -135,25 +155,26 @@ export const trackApplications = async (req: Request, res: Response, next: NextF
   }
 };
 
-/**
-
- * Updates the status of a job application.
- * 
- * @param {Request} req - Express request object containing `jobId`, `candidateId`, and `status` in the body.
- * @param {Response} res - Express response object used to send back a success message and the updated application details.
- * @param {NextFunction} next - Express next function to pass control to the error handler in case of an error.
- * 
- * @returns {Promise<void>} - Sends a JSON response with a message and updated application details upon success.
- * 
- * @throws - Passes any errors encountered to the next error handling middleware.
- */
-
-export const updateApplicationStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+// Updates the status of a job application.
+export const updateApplicationStatus = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
   const { jobId, candidateId, status } = req.body;
 
   try {
-    const updatedApplication = await JobService.updateApplicationStatus(jobId, candidateId, status);
-    res.status(200).json({ message: "Application status updated", application: updatedApplication });
+    const updatedApplication = await JobService.updateApplicationStatus(
+      jobId,
+      candidateId,
+      status
+    );
+    res
+      .status(200)
+      .json({
+        message: "Application status updated",
+        application: updatedApplication,
+      });
   } catch (err) {
     next(err); // Pass error to error handler
   }

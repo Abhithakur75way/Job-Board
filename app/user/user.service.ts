@@ -1,56 +1,52 @@
-import bcrypt from "bcryptjs";
+import { Repository } from "typeorm";
+import bcrypt from "bcrypt";
 import crypto from "crypto";
-import { User } from "../user/user.schema";
+import { AppDataSource } from "../data-source";
+import { User } from "./user.entity";
 import {
   generateAccessToken,
   generateRefreshToken,
   verifyRefreshToken,
 } from "../common/helper/token.helper";
 import { sendPasswordResetEmail } from "../common/services/email.service";
+import { LessThanOrEqual } from "typeorm";
 
 export class UserService {
-  // Register a new user
+  private static userRepository: Repository<User> =
+    AppDataSource.getRepository(User);
+
   static async registerUser(
     name: string,
     email: string,
     password: string,
-    role: string
+    role: "employer" | "candidate"
   ) {
-    const userExists = await User.findOne({ email });
+    const userExists = await this.userRepository.findOne({ where: { email } });
     if (userExists) throw new Error("User already exists");
 
-    const newUser = new User({ name, email, password, role });
-    await newUser.save();
+    const newUser = this.userRepository.create({ name, email, password, role });
+    await this.userRepository.save(newUser);
 
-    // Generate tokens after user creation
-    const accessToken = generateAccessToken(
-      newUser._id.toString(),
-      newUser.role
-    );
-    const refreshToken = generateRefreshToken(
-      newUser._id.toString(),
-      newUser.role
-    );
+    const accessToken = generateAccessToken(newUser.id.toString(), newUser.role);
+    const refreshToken = generateRefreshToken(newUser.id.toString(), newUser.role);
 
     return { newUser, accessToken, refreshToken };
   }
 
-  // Login an existing user
   static async loginUser(email: string, password: string) {
-    const user = await User.findOne({ email });
+    const user = await this.userRepository.findOne({ where: { email } });
     if (!user) throw new Error("Invalid credentials");
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    const isMatch = await bcrypt.compare(password, user.password as string);
     if (!isMatch) throw new Error("Invalid credentials");
 
-    // Generate tokens after successful login
-    const accessToken = generateAccessToken(user._id.toString(), user.role);
-    const refreshToken = generateRefreshToken(user._id.toString(), user.role);
+    const accessToken = generateAccessToken(user.id.toString(), user.role);
+    const refreshToken = generateRefreshToken(user.id.toString(), user.role);
 
     return { user, accessToken, refreshToken };
   }
 
-  // Refresh the access token using the refresh token
+
   static async refreshAccessToken(refreshToken: string) {
     const decoded = verifyRefreshToken(refreshToken);
     if (!decoded) throw new Error("Invalid refresh token");
@@ -61,54 +57,46 @@ export class UserService {
     return { newAccessToken };
   }
 
-  // Generate and send a password reset token
   static async sendPasswordResetToken(email: string) {
-    const user = await User.findOne({ email });
+    const user = await this.userRepository.findOne({ where: { email } });
     if (!user) {
       throw new Error("User with this email does not exist");
     }
 
-    // Generate a password reset token
     const resetToken = crypto.randomBytes(32).toString("hex");
     const hashedToken = crypto
       .createHash("sha256")
       .update(resetToken)
       .digest("hex");
 
-    // Save the hashed token and expiration to the user document
     user.passwordResetToken = hashedToken;
     user.passwordResetExpires = new Date(Date.now() + 3600000); // Token valid for 1 hour
-    await user.save();
+    await this.userRepository.save(user);
 
-    // Generate reset URL and send the reset email
     const resetUrl = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
-    await sendPasswordResetEmail(user.email, resetUrl); // Pass email and token
+    await sendPasswordResetEmail(user.email as string, resetUrl);
 
     return { message: "Password reset token sent to email" };
   }
 
-  // Reset password using the token
   static async resetPassword(resetToken: string, newPassword: string) {
-    // Hash the provided token
     const hashedToken = crypto
       .createHash("sha256")
       .update(resetToken)
       .digest("hex");
 
-    // Find a user with the matching reset token and check expiration
-    const user = await User.findOne({
-      passwordResetToken: hashedToken,
-      passwordResetExpires: { $gt: Date.now() }, // Ensure token is not expired
+    const user = await this.userRepository.findOne({
+      where: {
+        passwordResetToken: hashedToken,
+        passwordResetExpires:LessThanOrEqual(new Date()),
+      },
     });
-    if (!user) {
-      throw new Error("Invalid or expired password reset token");
-    }
+    if (!user) throw new Error("Invalid or expired password reset token");
 
-    // Update the password and clear the reset token fields
     user.password = await bcrypt.hash(newPassword, 10);
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
-    await user.save();
+    await this.userRepository.save(user);
 
     return { message: "Password has been reset successfully" };
   }

@@ -63,8 +63,12 @@ router.post(
   [
     check("name").notEmpty().withMessage("Name is required"),
     check("email").isEmail().withMessage("Invalid email"),
-    check("password").isLength({ min: 6 }).withMessage("Password must be at least 6 characters"),
-    check("role").isIn(["employer", "candidate"]).withMessage("Role is required"),
+    check("password")
+      .isLength({ min: 6 })
+      .withMessage("Password must be at least 6 characters"),
+    check("role")
+      .isIn(["employer", "candidate"])
+      .withMessage("Role is required"),
   ],
   validate,
   registerUser

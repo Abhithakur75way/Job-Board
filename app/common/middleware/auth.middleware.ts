@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from "express";
-import { User } from "../../user/user.schema";
+import { User } from "../../user/user.entity";
 import { AuthService } from "../services/auth.service"; // Import the AuthService
 import { CustomError } from "../../utils/custom.error"; // A custom error handler class
+import { AppDataSource } from "../../data-source";
 
 /**
  * Authentication middleware to verify the access token in the Authorization header
@@ -41,7 +42,8 @@ export const authMiddleware = async (
     }
 
     // Find the user by the decoded `id`
-    const user = await User.findById(decoded.id);
+    const userRepository = AppDataSource.getRepository(User);
+const user = await userRepository.findOne({ where: { id: parseInt(decoded.id) } });
     if (!user) {
       throw new CustomError(404, "User not found");
     }

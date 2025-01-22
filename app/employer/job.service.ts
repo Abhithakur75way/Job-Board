@@ -1,9 +1,11 @@
-import Job from "../employer/job.schema";
-import { IUser } from "../user/user.schema";
-import { User } from "../user/user.schema";
-import mongoose, { Types } from "mongoose";
+import { AppDataSource } from "../data-source";
+import { Job } from "./job.entity";
+import { JobApplication } from "./job-application.entity";
+import { User } from "../user/user.entity";
+import { JobDto } from "./job.dto"; // DTO for creating new jobs
 
-// Job service class to handle all job-related logic
+
+
 export class JobService {
   // Create a new job
   static async createJob({
@@ -13,103 +15,139 @@ export class JobService {
     type,
     skills,
     employerId,
-  }: any) {
-    const job = new Job({
+  }: JobDto & { employerId: number }) {
+    const jobRepository = AppDataSource.getRepository(Job);
+    const employerRepository = AppDataSource.getRepository(User);  // Changed here
+
+    // Find the employer by ID
+    const employer = await employerRepository.findOne({
+      where: { id: employerId },
+    });
+
+    // If employer not found or role is not 'employer', throw an error
+    if (!employer) throw new Error("Employer not found");
+    if (employer.role !== "employer") {
+      throw new Error("Invalid employer");
+    }
+
+    // Create the job and associate it with the employer
+    const job = jobRepository.create({
       title,
       description,
       location,
       type,
       skills,
-      employer: employerId,
+      employer,
     });
 
-    return await job.save();
+    // Save the job to the database
+    await jobRepository.save(job);
+    return job;
   }
 
   // Get all jobs with filters
   static async getJobs(filter: any) {
-    return await Job.find(filter)
-      .populate("employer", "name email") // Populate employer info
-      .exec();
+    const jobRepository = AppDataSource.getRepository(Job);  // Changed here
+
+    // Filter logic based on the parameters provided
+    return await jobRepository.find({
+      where: filter,
+      relations: ["employer"], // Populate employer info
+    });
   }
 
   // Get job details by ID (also for employer to see applications)
-  static async getJobById(jobId: string, user: IUser | null) {
-    const job = await Job.findById(jobId)
-      .populate("employer", "name email") // Populate employer info
-      .exec();
+  static async getJobById(jobId: number, userId: number) {
+    const jobRepository = AppDataSource.getRepository(Job);  // Changed here
+
+    // Find the job by its ID along with related applications and employer
+    const job = await jobRepository.findOne({
+      where: { id: jobId },
+      relations: ["employer", "applications", "applications.candidate"],
+    });
 
     if (!job) throw new Error("Job not found");
 
-    if (user && user._id.toString() === job.employer.toString()) {
-      return job; // Employer can see applications
+    // If the user is the employer, return the job with applications
+    if (job.employer.id === userId) {
+      return job;
     } else {
-      const { applications, ...jobDetails } = job!.toObject();
-      return jobDetails; // Candidate can only see job details without applications
+      // Otherwise, return only the job details (without applications)
+      const { applications, ...jobDetails } = job;
+      return jobDetails;
     }
   }
 
   // Apply for a job
   static async applyForJob(
-    jobId: string,
-    candidateId: mongoose.Types.ObjectId,
+    jobId: number,
+    candidateId: number,
     resumeUrl: string
   ) {
-    const job = await Job.findById(jobId);
+    const jobRepository = AppDataSource.getRepository(Job);  // Changed here
+    const applicationRepository = AppDataSource.getRepository(JobApplication);  // Changed here
+
+    // Find the job by ID and populate the employer relationship
+    const job = await jobRepository.findOne({
+      where: { id: jobId },
+      relations: ["employer", "applications"],
+    });
+
     if (!job) throw new Error("Job not found");
 
+    // Check if the candidate has already applied for the job
     const alreadyApplied = job.applications.some(
-      (app) => app.candidateId.toString() === candidateId.toString()
+      (app) => app.candidate.id === candidateId
     );
-    if (alreadyApplied) throw new Error("You have already applied for this job");
+    if (alreadyApplied) {
+      throw new Error("You have already applied for this job");
+    }
 
-    job.applications.push({
-      candidateId,
+    // Create a new job application for the candidate
+    const application = applicationRepository.create({
+      job,
+      candidate: { id: candidateId }, // assuming candidate exists
       resumeUrl,
       status: "applied",
     });
-    await job.save();
 
-    // Get employer's email for notification
-    const employer = await User.findById(job.employer);
-    if (!employer) throw new Error("Employer not found");
+    // Save the application
+    await applicationRepository.save(application);
 
-    return { job, employerEmail: employer.email };
+    // Return the job, application, and employer's email
+    return {
+      job,
+      application,
+      employerEmail: job.employer.email, // Add employer email here
+    };
   }
 
   // Fetch all applications for a candidate
-  static async getCandidateApplications(candidateId: Types.ObjectId) {
-    // Find jobs where the candidate has applied
-    const jobs = await Job.find({
-      "applications.candidateId": candidateId,
-    }).populate("employer", "name email"); // Populate employer details
+  static async getCandidateApplications(candidateId: number) {
+    const applicationRepository = AppDataSource.getRepository(JobApplication);  // Changed here
 
-    // Transform the applications data for the candidate
-    const applications = jobs.map((job) => {
-      const application = job.applications.find(
-        (app) => app.candidateId.toString() === candidateId.toString()
-      );
-
-      return {
-        jobId: job._id,
-        jobTitle: job.title,
-        employer: job.employer,
-        location: job.location,
-        status: application?.status || "Unknown",
-        appliedAt: application?.createdAt || job.createdAt, // Use job's createdAt if application createdAt is missing
-      };
+    // Find all applications where the candidate is the applicant
+    const applications = await applicationRepository.find({
+      where: { candidate: { id: candidateId } },
+      relations: ["job", "job.employer"],
     });
 
-    return applications;
+    // Return application details with job and employer info
+    return applications.map((app) => ({
+      jobId: app.job.id,
+      jobTitle: app.job.title,
+      employer: app.job.employer,
+      status: app.status,
+      appliedAt: app.createdAt,
+    }));
   }
 
   // Update the status of a candidate's application
   static async updateApplicationStatus(
-    jobId: string,
-    candidateId: string,
+    jobId: number,
+    candidateId: number,
     status: string
   ) {
-    // Ensure the provided status is valid
     const validStatuses = [
       "applied",
       "under review",
@@ -117,31 +155,37 @@ export class JobService {
       "rejected",
       "hired",
     ];
+
+    // Validate if the status is one of the valid statuses
     if (!validStatuses.includes(status)) {
       throw new Error("Invalid application status");
     }
 
-    // Find the job by its ID
-    const job = await Job.findById(jobId);
-    if (!job) {
-      throw new Error("Job not found");
-    }
+    const jobRepository = AppDataSource.getRepository(Job);  // Changed here
+
+    // Find the job by its ID and populate the applications
+    const job = await jobRepository.findOne({
+      where: { id: jobId },
+      relations: ["applications"],
+    });
+
+    if (!job) throw new Error("Job not found");
 
     // Find the application for the candidate
     const application = job.applications.find(
-      (app) => app.candidateId.toString() === candidateId
+      (app) => app.candidate.id === candidateId
     );
-    if (!application) {
-      throw new Error("Application not found");
-    }
+    if (!application) throw new Error("Application not found");
 
     // Update the application status
     application.status = status;
-    await job.save();
+
+    // Save the updated application status
+    await AppDataSource.getRepository(JobApplication).save(application);
 
     return {
-      jobId: job._id,
-      candidateId: application.candidateId,
+      jobId: job.id,
+      candidateId: application.candidate.id,
       status: application.status,
     };
   }
